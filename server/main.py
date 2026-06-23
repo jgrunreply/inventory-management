@@ -2,6 +2,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from typing import List, Optional
 from pydantic import BaseModel
+from datetime import datetime, timedelta
 from mock_data import inventory_items, orders, demand_forecasts, backlog_items, spending_summary, monthly_spending, category_spending, recent_transactions, purchase_orders
 
 app = FastAPI(title="Factory Inventory Management System")
@@ -119,6 +120,10 @@ class CreatePurchaseOrderRequest(BaseModel):
     unit_cost: float
     expected_delivery_date: str
     notes: Optional[str] = None
+
+class RestockingOrderRequest(BaseModel):
+    items: List[dict]  # [{sku, name, quantity, unit_price}]
+    warehouse: Optional[str] = "San Francisco"
 
 # API endpoints
 @app.get("/")
@@ -303,6 +308,32 @@ def get_monthly_trends():
     result = list(months.values())
     result.sort(key=lambda x: x['month'])
     return result
+
+@app.post("/api/restocking-orders", response_model=Order)
+def create_restocking_order(request: RestockingOrderRequest):
+    """Create a restocking order from demand forecast recommendations"""
+    now = datetime.now()
+    order_id = str(len(orders) + 1)
+    order_number = f"RST-{now.year}-{order_id.zfill(4)}"
+    total_value = sum(
+        item.get("quantity", 0) * item.get("unit_price", 0)
+        for item in request.items
+    )
+    new_order = {
+        "id": order_id,
+        "order_number": order_number,
+        "customer": "Internal Restocking",
+        "items": request.items,
+        "status": "Restocking",
+        "order_date": now.isoformat(),
+        "expected_delivery": (now + timedelta(days=14)).isoformat(),
+        "total_value": round(total_value, 2),
+        "actual_delivery": None,
+        "warehouse": request.warehouse,
+        "category": None
+    }
+    orders.append(new_order)
+    return new_order
 
 if __name__ == "__main__":
     import uvicorn
